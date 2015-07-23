@@ -3,6 +3,8 @@
 #include <iostream>
 
 #include <signal.h>
+#include <poll.h>
+#include <limits.h>
 
 #include "fifo.h"
 #include "file_lock.h"
@@ -31,9 +33,9 @@ main (int argc, char** argv) {
         file_lock ("/tmp/led.server.lock");
         std::string
         buffer;
-        int
-        count = 0;
-        
+        pollfd
+        pool_fd [1];
+                
         signal (SIGINT, sigint);
 
         if (file_lock.try_lock () != 0) {
@@ -45,49 +47,58 @@ main (int argc, char** argv) {
         out.make (0666);
         std::cout << "led.server is created" << std::endl;
 
-        in.open (O_RDONLY | O_NONBLOCK);        
-        std::cout << "led.server is opened" << std::endl;            
+        in.open (O_RDONLY | O_NONBLOCK);
+        {
+            fifo_t
+            temp ("/tmp/led.server.out");
+            
+            temp.open (O_RDONLY | O_NONBLOCK);
+            out.open (O_WRONLY | O_NONBLOCK);
+        }
+        std::cout << "led.server is opened" << std::endl;
+        
+        pool_fd [0].fd = in.descriptor ();
+        pool_fd [0].events = POLLIN;
+        pool_fd [0].revents = 0;
 
-        buffer.resize (20);
+        buffer.resize (PIPE_BUF);
 
         while (stop == false) {
 
             int
-            length = in.read (buffer);
-
-            if (length > 0) {
-                
-                buffer = basic.processing (buffer);
-                
-                try {
+            result = poll (pool_fd, 1, 1000);
+            
+            if (result > 0) {
                     
-                    if (out.descriptor () < 0) {
+                result = in.read (buffer);
+
+                if (result > 0) {
+
+                    try {
                         
-                        out.open (O_WRONLY | O_NONBLOCK);
+                        result = out.write (basic.processing (buffer));
+                        
+                        if (result < 0) {
+
+                            throw std::runtime_error ("write");
+                        }
+                    }
+                    catch (const std::exception& exception) {
+
+                        std::cout << "led.server : " << exception.what () << std::endl
+                        << "errno : " << errno << std::endl;
                     }
 
-                    length = out.write (buffer);
-
-                    if (length < 0) {
-
-                        throw std::runtime_error ("write");
-                    }
+                    buffer.resize (PIPE_BUF);                
                 }
-                catch (const std::exception& exception) {
-                    
-                    std::cout << "led.server : " << exception.what () << std::endl
-                    << "errno : " << errno << std::endl;
+                else if (result < 0 and errno != EAGAIN) {
+
+                    throw std::runtime_error ("read");
                 }
-
-                buffer.resize (20);                
             }
-            else if (length < 0 and errno != EAGAIN) {
-
-                throw std::runtime_error ("led.server.read");
-            }
-            else {
+            else if (result < 0) {
                 
-                usleep (100000);
+                throw std::runtime_error ("poll"); 
             }
         }
         
