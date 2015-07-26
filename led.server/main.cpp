@@ -73,19 +73,12 @@ main (int argc, char** argv) {
                 result = in.read (buffer);
 
                 if (result > 0) {
-
-                    try {
                         
-                        result = out.write (basic.processing (buffer));
-                        
-                        if (result < 0) {
+                    result = out.write (basic.processing (buffer));
 
-                            throw std::runtime_error ("write");
-                        }
-                    }
-                    catch (const std::exception& exception) {
+                    if (result < 0) {
 
-                        std::cout << "led.server : " << exception.what () << std::endl
+                        std::cout << "led.server : write" << std::endl
                         << "errno : " << errno << std::endl;
                     }
 
